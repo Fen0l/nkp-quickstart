@@ -29,7 +29,14 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi  
 
-RELEASE=$(curl -s https://api.github.com/repos/ahmetb/kubectx/releases/latest | jq -r .tag_name)
+case "$(uname -m)" in
+    x86_64)  ARCH="x86_64" ;;
+    aarch64) ARCH="arm64" ;;
+    *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+esac
+
+_GH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+RELEASE=$(curl -s ${_GH_TOKEN:+-H "Authorization: token ${_GH_TOKEN}"} https://api.github.com/repos/ahmetb/kubectx/releases/latest | jq -r .tag_name)
 if [[ ${RELEASE} == "null" ]]; then
     echo "github api rate limiting blocked request"
     echo "get latest version failed. Exiting."
@@ -37,32 +44,32 @@ if [[ ${RELEASE} == "null" ]]; then
 fi
 
 echo "Downloading kubectx ${RELEASE}"
-url="https://github.com/ahmetb/kubectx/releases/download/${RELEASE}/kubectx_${RELEASE}_linux_x86_64.tar.gz"
-# Download the file with wget and check for errors
-wget -O kubectx_linux_x86_64.tar.gz "$url"
+url="https://github.com/ahmetb/kubectx/releases/download/${RELEASE}/kubectx_${RELEASE}_linux_${ARCH}.tar.gz"
+# Download the file and check for errors
+curl -fsSL -o "kubectx_linux_${ARCH}.tar.gz" "$url"
 if [ $? -ne 0 ]; then
     echo "Download failed. Exiting."
     exit 1
 fi
 
 # Extract the downloaded file and check for errors
-tar xzf kubectx_linux_x86_64.tar.gz
+tar xzf "kubectx_linux_${ARCH}.tar.gz"
 if [ $? -ne 0 ]; then
     echo "Extraction failed. Exiting."
     exit 1
 fi
 
 echo "Downloading kubens ${RELEASE}"
-url="https://github.com/ahmetb/kubectx/releases/download/${RELEASE}/kubens_${RELEASE}_linux_x86_64.tar.gz"
-# Download the file with wget and check for errors
-wget -O kubens_linux_x86_64.tar.gz "$url"
+url="https://github.com/ahmetb/kubectx/releases/download/${RELEASE}/kubens_${RELEASE}_linux_${ARCH}.tar.gz"
+# Download the file and check for errors
+curl -fsSL -o "kubens_linux_${ARCH}.tar.gz" "$url"
 if [ $? -ne 0 ]; then
     echo "Download failed. Exiting."
     exit 1
 fi
 
 # Extract the downloaded file and check for errors
-tar xzf kubens_linux_x86_64.tar.gz
+tar xzf "kubens_linux_${ARCH}.tar.gz"
 if [ $? -ne 0 ]; then
     echo "Extraction failed. Exiting."
     exit 1
@@ -73,11 +80,9 @@ sudo mv ./kubectx /usr/local/bin
 sudo mv ./kubens /usr/local/bin
 
 # Clean up downloaded files
-rm -f kubectx_linux_x86_64.tar.gz kubens_linux_x86_64.tar.gz LICENSE
+rm -f "kubectx_linux_${ARCH}.tar.gz" "kubens_linux_${ARCH}.tar.gz"
 
 # Success message
 echo "kubectx and kubens CLI installed successfully!"
-echo "checking kubectx version"
-kubectx -V
-echo "checking kubens version"
-kubens -V
+echo "installed kubectx ${RELEASE}"
+echo "installed kubens ${RELEASE}"

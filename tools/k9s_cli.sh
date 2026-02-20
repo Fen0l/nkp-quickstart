@@ -29,25 +29,42 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi  
 
-K9SRELEASE=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest | jq -r .tag_name)
+case "$(uname -m)" in
+    x86_64)  ARCH="amd64" ;;
+    aarch64) ARCH="arm64" ;;
+    *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+esac
+
+_GH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+K9SRELEASE=$(curl -s ${_GH_TOKEN:+-H "Authorization: token ${_GH_TOKEN}"} https://api.github.com/repos/derailed/k9s/releases/latest | jq -r .tag_name)
 if [[ ${K9SRELEASE} == "null" ]]; then
     echo "github api rate limiting blocked request"
     echo "get latest version failed. Exiting."
     exit 1
 fi
 
-echo "Downloading k9s ${K9SRELEASE}"
-url="https://github.com/derailed/k9s/releases/download/${K9SRELEASE}/k9s_Linux_amd64.tar.gz"
+# Check if already at latest version (check all locations in PATH)
+LATEST="${K9SRELEASE#v}"
+for TOOL_PATH in $(type -ap k9s 2>/dev/null); do
+    CURRENT=$("$TOOL_PATH" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [[ "$CURRENT" == "$LATEST" ]]; then
+        echo "k9s is already at latest version (${K9SRELEASE}), skipping."
+        exit 0
+    fi
+done
 
-# Download the file with wget and check for errors
-wget -O k9s_Linux_amd64.tar.gz "$url"
+echo "Downloading k9s ${K9SRELEASE}"
+url="https://github.com/derailed/k9s/releases/download/${K9SRELEASE}/k9s_Linux_${ARCH}.tar.gz"
+
+# Download the file and check for errors
+curl -fsSL -o "k9s_Linux_${ARCH}.tar.gz" "$url"
 if [ $? -ne 0 ]; then
     echo "Download failed. Exiting."
     exit 1
 fi
 
 # Extract the downloaded file and check for errors
-tar xzf k9s_Linux_amd64.tar.gz 
+tar xzf "k9s_Linux_${ARCH}.tar.gz"
 if [ $? -ne 0 ]; then
     echo "Extraction failed. Exiting."
     exit 1
@@ -63,7 +80,7 @@ else
 fi
 
 # Clean up downloaded files
-rm -f k9s_Linux_amd64.tar.gz LICENSE README.md
+rm -f "k9s_Linux_${ARCH}.tar.gz"
 
 # Success message
 echo "k9s CLI installed successfully!"

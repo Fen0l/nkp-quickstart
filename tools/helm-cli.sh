@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+
+#------------------------------------------------------------------------------
+# Tool installer: Helm
+# For use with NKP DevSecOps toolkit
+#------------------------------------------------------------------------------
+
+#check if jq is installed
+if ! command -v jq &> /dev/null; then
+    echo "jq is not installed. Please install jq to run this script."
+    exit 1
+fi
+
+case "$(uname -m)" in
+    x86_64)  ARCH="amd64" ;;
+    aarch64) ARCH="arm64" ;;
+    *) echo "Unsupported architecture: $(uname -m)"; exit 1 ;;
+esac
+
+_GH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+RELEASE=$(curl -s ${_GH_TOKEN:+-H "Authorization: token ${_GH_TOKEN}"} https://api.github.com/repos/helm/helm/releases/latest | jq -r .tag_name)
+if [[ ${RELEASE} == "null" ]]; then
+    echo "github api rate limiting blocked request"
+    echo "get latest version failed. Exiting."
+    exit 1
+fi
+
+# Check if already at latest version
+TOOL_PATH=$(command -v helm 2>/dev/null)
+if [ -n "$TOOL_PATH" ]; then
+    CURRENT=$("$TOOL_PATH" version --short 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    LATEST="${RELEASE#v}"
+    if [[ "$CURRENT" == "$LATEST" ]]; then
+        echo "helm is already at latest version (${RELEASE}), skipping."
+        exit 0
+    fi
+fi
+
+echo "Downloading Helm ${RELEASE}"
+url="https://get.helm.sh/helm-${RELEASE}-linux-${ARCH}.tar.gz"
+
+# Download the file and check for errors
+curl -fsSL -o "helm-linux-${ARCH}.tar.gz" "$url"
+if [ $? -ne 0 ]; then
+    echo "Download failed. Exiting."
+    exit 1
+fi
+
+# Extract the downloaded file and check for errors
+tar xzf "helm-linux-${ARCH}.tar.gz"
+if [ $? -ne 0 ]; then
+    echo "Extraction failed. Exiting."
+    exit 1
+fi
+
+# Move binary to /usr/local/bin
+sudo mv "linux-${ARCH}/helm" /usr/local/bin
+if [ $? -ne 0 ]; then
+    echo "Failed to move helm. Exiting."
+    exit 1
+fi
+
+# Clean up downloaded files
+rm -rf "helm-linux-${ARCH}.tar.gz" "linux-${ARCH}/"
+
+# Success message
+echo "Helm CLI installed successfully!"
+echo "checking version"
+helm version
