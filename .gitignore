@@ -19,3 +19,10 @@ build/
 *.egg-info/
 
 *.log
+
+# NKP config with runtime values (passwords prompted separately)
+mgmt-cluster/config.json
+
+# Airgap Bundles
+nkp-air-gapped-bundle.tar.gz
+nkp-airgap-bundle/

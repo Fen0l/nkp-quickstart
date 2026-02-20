@@ -1,0 +1,81 @@
+{
+  "deployment_type": "connected",
+
+  "cluster": {
+    "name": "nkp-mgmt",
+    "hostname": "nkp-mgmt.itcs.local",
+    "extra_sans": ""
+  },
+
+  "nutanix": {
+    "endpoint": "10.0.0.1",
+    "port": 9440,
+    "username": "nkp-admin",
+    "insecure": true,
+    "additional_trust_bundle": "",
+    "prism_element_cluster": "PE-Cluster-01",
+    "subnet": "VM-Network-01",
+    "storage_container": "pe-default-container"
+  },
+
+  "networking": {
+    "control_plane_vip": "10.0.0.100",
+    "metallb_ip_range": "10.0.0.200-10.0.0.210",
+    "dns_server": "",
+    "ntp_server": "",
+    "pod_cidr": "192.168.0.0/16",
+    "service_cidr": "10.96.0.0/12"
+  },
+
+  "nodes": {
+    "control_plane": {
+      "count": 3,
+      "vcpus": 4,
+      "memory_gb": 16,
+      "disk_gb": 80
+    },
+    "worker": {
+      "count": 4,
+      "vcpus": 8,
+      "memory_gb": 32,
+      "disk_gb": 80
+    }
+  },
+
+  "images": {
+    "nib_image": "nkp-rocky-9.5-release-cis-1.34.2-20250430150550.qcow2",
+    "worker_image": "nkp-rocky-9.5-release-cis-1.34.2-20250430150550.qcow2"
+  },
+
+  "registry": {
+    "mirror_url": "registry-1.docker.io",
+    "mirror_username": "",
+    "mirror_ca_cert_path": "",
+    "registry_url": "",
+    "registry_username": "",
+    "ca_cert_path": ""
+  },
+
+  "proxy": {
+    "http_proxy": "",
+    "https_proxy": "",
+    "no_proxy": ""
+  },
+
+  "options": {
+    "ssh_username": "konvoy",
+    "ssh_public_key_file": "~/.ssh/id_rsa.pub",
+    "self_managed": true,
+    "cp_categories": "",
+    "worker_categories": "",
+    "csi_hypervisor_attached": true,
+    "csi_file_system": "ext4",
+    "csi_reclaim_policy": "Delete",
+    "csi_flash_mode": false,
+    "kind_cluster_image": ""
+  },
+
+  "license": {
+    "type": "starter"
+  }
+}
