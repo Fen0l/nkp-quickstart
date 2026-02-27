@@ -70,6 +70,8 @@ if ! jq empty "$CONFIG_FILE" 2>/dev/null; then
 fi
 
 DEPLOYMENT_TYPE=$(cfg '.deployment_type')
+AIRGAP_METHOD=$(cfg '.airgap_method')
+BUNDLE_DIR=$(cfg '.bundle_dir')
 CLUSTER_NAME=$(cfg '.cluster.name')
 NTX_ENDPOINT=$(cfg '.nutanix.endpoint')
 NTX_PORT=$(cfg '.nutanix.port')
@@ -122,23 +124,26 @@ fi
 REG_MIRROR_PASS=""
 REG_PASS=""
 
-if [[ "$DEPLOYMENT_TYPE" == "connected" && -n "$REG_MIRROR_URL" ]]; then
-  if [[ -n "${REGISTRY_MIRROR_PASSWORD:-}" ]]; then
-    echo "  Using REGISTRY_MIRROR_PASSWORD from environment."
-    REG_MIRROR_PASS="$REGISTRY_MIRROR_PASSWORD"
-  else
-    read -rsp "  Registry mirror password (Enter to skip): " REG_MIRROR_PASS < /dev/tty
-    echo ""
+# Registry passwords — not needed for bundle method
+if [[ "$AIRGAP_METHOD" != "bundle" ]]; then
+  if [[ "$DEPLOYMENT_TYPE" == "connected" && -n "$REG_MIRROR_URL" ]]; then
+    if [[ -n "${REGISTRY_MIRROR_PASSWORD:-}" ]]; then
+      echo "  Using REGISTRY_MIRROR_PASSWORD from environment."
+      REG_MIRROR_PASS="$REGISTRY_MIRROR_PASSWORD"
+    else
+      read -rsp "  Registry mirror password (Enter to skip): " REG_MIRROR_PASS < /dev/tty
+      echo ""
+    fi
   fi
-fi
 
-if [[ "$DEPLOYMENT_TYPE" == "airgap" && -n "$REG_URL" ]]; then
-  if [[ -n "${REGISTRY_PASSWORD:-}" ]]; then
-    echo "  Using REGISTRY_PASSWORD from environment."
-    REG_PASS="$REGISTRY_PASSWORD"
-  else
-    read -rsp "  Private registry password: " REG_PASS < /dev/tty
-    echo ""
+  if [[ "$DEPLOYMENT_TYPE" == "airgap" && -n "$REG_MIRROR_URL" ]]; then
+    if [[ -n "${REGISTRY_PASSWORD:-}" ]]; then
+      echo "  Using REGISTRY_PASSWORD from environment."
+      REG_PASS="$REGISTRY_PASSWORD"
+    else
+      read -rsp "  Registry mirror password: " REG_PASS < /dev/tty
+      echo ""
+    fi
   fi
 fi
 
@@ -302,15 +307,62 @@ if [[ -n "$REG_MIRROR_CA" ]]; then
   fi
 fi
 
-# Airgap-specific: kind_cluster_image required
+# Airgap-specific checks
 if [[ "$DEPLOYMENT_TYPE" == "airgap" ]]; then
-  if [[ -n "$KIND_IMAGE" ]]; then
-    pass "Bootstrap image (kind-cluster-image): ${KIND_IMAGE}"
+  pass "Airgap method: ${AIRGAP_METHOD:-external}"
+
+  if [[ "$AIRGAP_METHOD" == "bundle" ]]; then
+    # Bundle method: check that bundle files exist
+    RESOLVED_BD="$BUNDLE_DIR"
+    VD=$(ls -d "${BUNDLE_DIR}"/nkp-v* 2>/dev/null | head -1 || true)
+    [[ -n "$VD" && -d "$VD" ]] && RESOLVED_BD="$VD"
+
+    BUNDLE_COUNT=$(find "$RESOLVED_BD" -maxdepth 2 -name "*-image-bundle-*.tar" -type f 2>/dev/null | wc -l)
+    if [[ $BUNDLE_COUNT -gt 0 ]]; then
+      pass "Image bundles found: ${BUNDLE_COUNT} in ${BUNDLE_DIR}"
+    else
+      fail "No image bundles (*-image-bundle-*.tar) in ${BUNDLE_DIR}"
+    fi
+
+    # Bootstrap image: bundle method loads it automatically
+    BOOTSTRAP_LOADED=false
+    if command -v docker &>/dev/null; then
+      if docker image ls --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -q "konvoy-bootstrap"; then
+        BOOTSTRAP_LOADED=true
+      fi
+    fi
+    if [[ "$BOOTSTRAP_LOADED" == "true" ]]; then
+      pass "Bootstrap image: docker-loaded locally"
+    else
+      # Check if bootstrap tar exists in bundle dir
+      if find "$RESOLVED_BD" -maxdepth 1 -name "konvoy-bootstrap-image-*.tar" -type f 2>/dev/null | grep -q .; then
+        warn "Bootstrap image not docker-loaded yet — run: docker load --input konvoy-bootstrap-image-*.tar"
+      else
+        fail "Bootstrap image tar not found in bundle dir"
+      fi
+    fi
+
   else
-    fail "Airgap requires --kind-cluster-image (options.kind_cluster_image)"
-  fi
-  if [[ -z "$REG_MIRROR_URL" ]]; then
-    fail "Airgap requires registry.mirror_url (--registry-mirror-url)"
+    # External registry method: need registry-mirror-url
+    if [[ -z "$REG_MIRROR_URL" ]]; then
+      fail "External airgap requires registry.mirror_url (--registry-mirror-url)"
+    fi
+
+    # Bootstrap image: either docker-loaded or --kind-cluster-image
+    BOOTSTRAP_LOADED=false
+    if command -v docker &>/dev/null; then
+      if docker image ls --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -q "konvoy-bootstrap"; then
+        BOOTSTRAP_LOADED=true
+      fi
+    fi
+
+    if [[ -n "$KIND_IMAGE" ]]; then
+      pass "Bootstrap image (kind-cluster-image): ${KIND_IMAGE}"
+    elif [[ "$BOOTSTRAP_LOADED" == "true" ]]; then
+      pass "Bootstrap image: docker-loaded locally"
+    else
+      fail "Airgap: bootstrap image not found — docker load or set options.kind_cluster_image"
+    fi
   fi
 fi
 
@@ -502,16 +554,19 @@ if [[ "$DEPLOYMENT_TYPE" == "connected" ]]; then
   else
     warn "No registry mirror configured (Docker Hub rate limits may apply)"
   fi
+elif [[ "$AIRGAP_METHOD" == "bundle" ]]; then
+  # Bundle method: no external registry needed for cluster creation
+  pass "Bundle mode: no external registry check needed (internal registry from bundles)"
 else
-  # Airgap — private registry required
-  if [[ -n "$REG_URL" ]]; then
-    check_registry "Private registry" "$REG_URL" "$REG_CA" || true
-  else
-    fail "Air-gapped deployment requires a private registry URL"
-  fi
-  # Mirror URL also needed in airgap
-  if [[ -n "$REG_MIRROR_URL" && "$REG_MIRROR_URL" != "$REG_URL" ]]; then
+  # External registry method: mirror URL required
+  if [[ -n "$REG_MIRROR_URL" ]]; then
     check_registry "Registry mirror" "$REG_MIRROR_URL" "$REG_MIRROR_CA" || true
+  else
+    fail "External airgap requires registry.mirror_url"
+  fi
+  # registry_url is for push scripts — check it too if set
+  if [[ -n "$REG_URL" && "$REG_URL" != "$REG_MIRROR_URL" ]]; then
+    check_registry "Push registry" "$REG_URL" "$REG_CA" || true
   fi
 fi
 

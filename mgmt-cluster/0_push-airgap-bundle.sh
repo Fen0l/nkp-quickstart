@@ -39,9 +39,21 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 DEPLOYMENT_TYPE=$(jq -r '.deployment_type // empty' "$CONFIG_FILE")
+AIRGAP_METHOD=$(jq -r '.airgap_method // empty' "$CONFIG_FILE")
+
 if [[ "$DEPLOYMENT_TYPE" != "airgap" ]]; then
   fail "deployment_type is '${DEPLOYMENT_TYPE}', not 'airgap'. This script is for airgap only."
   exit 1
+fi
+
+if [[ "$AIRGAP_METHOD" == "bundle" ]]; then
+  warn "airgap_method is 'bundle' — NKP will create an internal registry from bundles."
+  warn "Pushing to external registry is only needed for the 'external' method."
+  read -rp "  Continue anyway? [y/N]: " cont < /dev/tty
+  if [[ "${cont,,}" != "y" && "${cont,,}" != "yes" ]]; then
+    echo "  Aborted."
+    exit 0
+  fi
 fi
 ok "Deployment type: airgap"
 

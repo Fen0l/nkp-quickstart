@@ -33,7 +33,7 @@ import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 
-# Prism Central APIv4 wrapper — uses globals PC_URL, PC_USER, PC_PASS (set below)
+# Prism Central APIv4 wrapper uses globals PC_URL, PC_USER, PC_PASS (set below)
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
@@ -177,8 +177,9 @@ def cfg(path, fallback=""):
 
 # Start run
 
-print("\n  NKP Management Cluster — Configuration Wizard\n")
-# Step 0: Prism Central connection — env vars: PC_URL, PC_USER, PC_PASS
+print("\n  NKP Management Cluster | Configuration Wizard\n")
+# Step 0: Prism Central connection
+# env vars: PC_URL, PC_USER, PC_PASS
 header("Prism Central Connection")
 PC_URL = os.environ.get("PC_URL", "")
 PC_USER = os.environ.get("PC_USER", "")
@@ -236,6 +237,17 @@ if not PC_OK:
 # Step 1: Deployment type
 header("Deployment Type")
 dtype = ask("Deployment type (connected/airgap)", cfg("deployment_type", "connected"))
+
+# Airgap method: bundle (internal registry) vs external (pre-pushed to Harbor etc.)
+airgap_method = ""
+if dtype == "airgap":
+    print("")
+    print("  Air-gapped methods:")
+    print("    bundle   — NKP creates internal registry from local tar files (recommended)")
+    print("    external — You pre-push images to your own registry (Harbor, Nexus, etc.)")
+    print("  These are mutually exclusive. Cannot use both.")
+    print("")
+    airgap_method = ask("Airgap method (bundle/external)", cfg("airgap_method", "external"))
 
 # Step 2: Cluster basics
 header("Cluster")
@@ -349,7 +361,7 @@ if images and "data" in images:
 if not nib_image:
     nib_image = ask("Image name (manual)", prev_image or "nkp-rocky-9.5-release-cis-1.34.2-20250430150550.qcow2")
 
-# Worker image — defaults to same as CP
+# Worker image defaults to same as CP
 prev_w_image = cfg("images.worker_image", "")
 if prev_w_image and prev_w_image != nib_image:
     worker_image = ask("Worker image (different from CP)", prev_w_image)
@@ -394,7 +406,7 @@ ntp = ask("NTP server (optional)", cfg("networking.ntp_server", ""))
 pod_cidr = ask("Pod network CIDR", cfg("networking.pod_cidr", "192.168.0.0/16"))
 service_cidr = ask("Service network CIDR", cfg("networking.service_cidr", "10.96.0.0/12"))
 
-# Step 9: Node sizing — license-based defaults & minimums
+# Step 9: Node sizing license-based defaults & minimums
 header("Node Sizing")
 LICENSE_REQS = {
     "starter":  {"cp": 3, "cp_cpu": 4, "cp_mem": 8,  "cp_disk": 80, "w": 4, "w_cpu": 4,  "w_mem": 16, "w_disk": 80,
@@ -447,17 +459,27 @@ if warnings:
 # Step 10: Registry
 header("Registry")
 mirror_url = mirror_user = mirror_ca = reg_url = reg_user = reg_ca = ""
-if dtype == "airgap":
-    print("  Air-gapped: private registry required for both --registry-url and --registry-mirror-url.")
-    reg_url = ask("Private registry URL (hosts NKP images)", cfg("registry.registry_url", ""))
-    reg_user = ask("Registry username", cfg("registry.registry_username", ""))
-    reg_ca = ask("Registry CA cert path (optional)", cfg("registry.ca_cert_path", ""))
+bundle_dir = ""
 
-    # In airgap, mirror-url typically points to the same private registry
-    default_mirror = cfg("registry.mirror_url", reg_url)
-    mirror_url = ask("Registry mirror URL (same registry or separate)", default_mirror)
-    mirror_user = ask("Mirror username (optional, Enter if same)", cfg("registry.mirror_username", reg_user))
-    mirror_ca = ask("Mirror CA cert path (optional, Enter if same)", cfg("registry.mirror_ca_cert_path", reg_ca))
+if dtype == "airgap" and airgap_method == "bundle":
+    # Internal registry  NKP creates it from bundles, no registry flags needed
+    print("  Bundle mode: NKP will create an internal registry from local tar files.")
+    print("  No registry-mirror flags needed. Pass --bundle to nkp create cluster.")
+    default_bundle = cfg("bundle_dir", os.path.join(SCRIPT_DIR, "..", "nkp-airgap-bundle"))
+    bundle_dir = ask("Bundle directory", default_bundle)
+
+elif dtype == "airgap" and airgap_method == "external":
+    # External registry push first, then use --registry-mirror-url
+    print("  External registry: images must be pre-pushed (0_push-airgap-bundle.sh).")
+    print("  NKP will use --registry-mirror-url to pull from your registry.")
+    mirror_url = ask("Registry mirror URL (where NKP pulls images from)", cfg("registry.mirror_url", ""))
+    mirror_user = ask("Mirror username", cfg("registry.mirror_username", ""))
+    mirror_ca = ask("Mirror CA cert path (optional)", cfg("registry.mirror_ca_cert_path", ""))
+    # registry_url is for push scripts, not used by nkp create in airgap
+    reg_url = ask("Registry URL (for push scripts, can be same as mirror)", cfg("registry.registry_url", mirror_url))
+    reg_user = ask("Registry push username (Enter if same)", cfg("registry.registry_username", mirror_user))
+    reg_ca = ask("Registry CA cert path (Enter if same)", cfg("registry.ca_cert_path", mirror_ca))
+
 elif ask_yn("Configure a registry mirror? (avoids Docker Hub rate limits)", default=bool(cfg("registry.mirror_url"))):
     mirror_url = ask("Registry mirror URL", cfg("registry.mirror_url", "registry-1.docker.io"))
     mirror_user = ask("Mirror username (optional)", cfg("registry.mirror_username", ""))
@@ -489,17 +511,22 @@ csi_fs = ask("CSI filesystem (ext4/xfs)", cfg("options.csi_file_system", "ext4")
 csi_reclaim = ask("CSI reclaim policy (Delete/Retain)", cfg("options.csi_reclaim_policy", "Delete"))
 csi_flash = ask_yn("CSI flash mode?", default=cfg("options.csi_flash_mode", False))
 
-# Bootstrap image (critical for airgap)
+# Bootstrap image
 kind_image = ""
-if dtype == "airgap":
+if dtype == "airgap" and airgap_method == "external":
+    # External registry --kind-cluster-image pointing to registry
+    # OR docker load the bootstrap tar (then flag not needed)
     header("Bootstrap Image")
-    print("  Airgap: --kind-cluster-image must point to your local registry.")
+    print("  External registry: either docker-load the bootstrap image locally")
+    print("  OR point --kind-cluster-image to your registry.")
     default_kind = cfg("options.kind_cluster_image", "")
     if not default_kind and mirror_url:
-        # Strip scheme — kind-cluster-image wants image ref, not URL
         mirror_host = mirror_url.replace("https://", "").replace("http://", "").rstrip("/")
         default_kind = f"{mirror_host}/mesosphere/konvoy-bootstrap"
-    kind_image = ask("Bootstrap image (without tag, version auto-appended)", default_kind)
+    kind_image = ask("Bootstrap image (Enter to skip if docker-loaded)", default_kind)
+elif dtype == "airgap" and airgap_method == "bundle":
+    # Bundle mode: bootstrap image loaded from bundle, no flag needed
+    pass
 else:
     kind_image = ask("Bootstrap image override (optional, Enter to skip)", cfg("options.kind_cluster_image", ""))
 
@@ -512,6 +539,7 @@ pc_port = parsed_pc.port or 9440
 
 config = {
     "deployment_type": dtype,
+    "airgap_method": airgap_method,
     "cluster": {
         "name": cluster_name,
         "hostname": cluster_hostname,
@@ -564,6 +592,7 @@ config = {
         "csi_flash_mode": csi_flash,
         "kind_cluster_image": kind_image,
     },
+    "bundle_dir": bundle_dir,
     "license": {"type": license_type},
 }
 

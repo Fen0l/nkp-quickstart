@@ -1,5 +1,6 @@
 {
   "deployment_type": "connected",
+  "airgap_method": "",
 
   "cluster": {
     "name": "nkp-mgmt",
@@ -74,6 +75,8 @@
     "csi_flash_mode": false,
     "kind_cluster_image": ""
   },
+
+  "bundle_dir": "",
 
   "license": {
     "type": "starter"

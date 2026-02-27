@@ -20,6 +20,9 @@ build/
 
 *.log
 
+# Kubeconfig files (contain credentials)
+*.conf
+
 # NKP config with runtime values (passwords prompted separately)
 mgmt-cluster/config.json
 
