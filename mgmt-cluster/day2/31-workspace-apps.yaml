@@ -1,0 +1,63 @@
+###############################################################################
+#  Workspace Foundational Apps Reloader + Traefik
+#
+#  Foundational apps must be enabled on each workspace before any optional platform apps (monitoring, logging, etc.) can be deployed.
+#
+#  NKP 2.17 foundational apps:
+#    - Reloader v2.2.5  — auto-reloads pods on ConfigMap/Secret changes
+#    - Traefik  v37.1.2 — HTTP reverse proxy and load balancer
+#
+#  Apply (for both workspaces):
+#    source ../helpers.sh
+#    kapply day2/31-workspace-apps.yaml \
+#      PRODUCTION_NS="$(kubectl get workspace production -o jsonpath='{.status.namespaceRef.name}')" \
+#      DEMO_NS="$(kubectl get workspace demo -o jsonpath='{.status.namespaceRef.name}')"
+#
+#  Verify:
+#    kubectl get appdeployments -n <workspace-ns>
+#    kubectl get helmreleases -n <workspace-ns>
+###############################################################################
+
+# Production workspace Reloader 
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: reloader
+  namespace: ${PRODUCTION_NS}
+spec:
+  appRef:
+    name: reloader-2.2.5
+    kind: ClusterApp
+---
+# Production workspace Traefik 
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: traefik
+  namespace: ${PRODUCTION_NS}
+spec:
+  appRef:
+    name: traefik-37.1.2
+    kind: ClusterApp
+---
+#  Demo workspace Reloader 
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: reloader
+  namespace: ${DEMO_NS}
+spec:
+  appRef:
+    name: reloader-2.2.5
+    kind: ClusterApp
+---
+# Demo workspace Traefik 
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: traefik
+  namespace: ${DEMO_NS}
+spec:
+  appRef:
+    name: traefik-37.1.2
+    kind: ClusterApp

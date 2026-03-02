@@ -1,0 +1,35 @@
+###############################################################################
+#  Workspaces Multi-tenant isolation
+#
+#  Workspaces provide namespace-level isolation for teams/environments.
+#  Kommander generates a namespace with a random suffix (e.g., production-x8k2p).
+#
+#  Apply:
+#    kubectl apply -f day2/30-workspaces.yaml
+#
+#  Or via CLI (simpler, handles namespace creation):
+#    nkp create workspace production --kubeconfig=${CLUSTER_NAME}.conf
+#    nkp create workspace demo --kubeconfig=${CLUSTER_NAME}.conf
+#
+#  Verify:
+#    nkp get workspaces --kubeconfig=${CLUSTER_NAME}.conf
+#    kubectl get workspaces.workspaces.kommander.mesosphere.io
+###############################################################################
+
+apiVersion: workspaces.kommander.mesosphere.io/v1alpha1
+kind: Workspace
+metadata:
+  name: production
+  annotations:
+    kommander.mesosphere.io/display-name: Production
+spec:
+  namespaceName: production
+---
+apiVersion: workspaces.kommander.mesosphere.io/v1alpha1
+kind: Workspace
+metadata:
+  name: demo
+  annotations:
+    kommander.mesosphere.io/display-name: Demo
+spec:
+  namespaceName: demo

@@ -1,0 +1,37 @@
+###############################################################################
+#  Projects Application isolation within workspaces
+#
+#  Projects live inside a workspace namespace. The workspaceRef must point to
+#  the workspace name and its generated namespace (which has a random suffix).
+#
+#  IMPORTANT: Apply AFTER workspaces are ready (30-workspaces.yaml).
+#  Kommander generates namespace names like "production-x8k2p"
+# the kapply command below discovers them automatically for this project
+#
+#  Apply:
+#    source ../helpers.sh
+#    kapply day2/40-projects.yaml \
+#      PRODUCTION_NS="$(kubectl get workspace production -o jsonpath='{.status.namespaceRef.name}')" \
+#      DEMO_NS="$(kubectl get workspace demo -o jsonpath='{.status.namespaceRef.name}')"
+#
+#  Verify:
+#    kubectl get projects.workspaces.kommander.mesosphere.io -A
+###############################################################################
+
+apiVersion: workspaces.kommander.mesosphere.io/v1alpha1
+kind: Project
+metadata:
+  name: apps
+  namespace: ${PRODUCTION_NS}
+spec:
+  workspaceRef:
+    name: production
+---
+apiVersion: workspaces.kommander.mesosphere.io/v1alpha1
+kind: Project
+metadata:
+  name: demo-apps
+  namespace: ${DEMO_NS}
+spec:
+  workspaceRef:
+    name: demo
