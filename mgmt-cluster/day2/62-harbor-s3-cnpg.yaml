@@ -1,0 +1,151 @@
+###############################################################################
+#  Harbor S3 Storage (via COSI) + CNPG Backups Nutanix Objects
+#
+#  1) Enables Harbor's native COSI integration for S3 image storage.
+#     The cosi-bucket-kit chart creates a BucketClaim, COSI provisions the
+#     bucket on Nutanix Objects, and auto-generates harbor-cosi-overrides
+#     ConfigMap which Harbor picks up to switch from filesystem to S3.
+#
+#  2) Enables CNPG (CloudNativePG) PostgreSQL backups to S3 (manual config,
+#     CNPG doesn't support COSI).
+#
+#  Prerequisites:
+#    - COSI driver for Nutanix enabled (02-cosi-secret.yaml applied)
+#    - BucketClass "cosi-nutanix-nkp" exists
+#    - Bucket "nkp-cnpg" exists on Nutanix Objects (for CNPG backups)
+#    - Harbor and harbor-database already deployed
+#
+#  Apply (after Kommander install):
+#    kapply mgmt-cluster/day2/62-harbor-s3-cnpg.yaml \
+#      OBJECTS_ACCESS_KEY="xxx" \
+#      OBJECTS_SECRET_KEY="yyy"
+#
+#  Verify:
+#    # Harbor COSI:
+#    kubectl get bucketclaim,bucketaccess -n ncr-system
+#    kubectl get configmap -n kommander harbor-cosi-overrides
+#    kubectl get pods -n ncr-system | grep registry
+#    # CNPG backups:
+#    kubectl get scheduledbackup -n ncr-system
+#    kubectl get backup -n ncr-system
+#
+#  Notes:
+#    - Harbor COSI: bucket auto-provisioned, credentials auto-managed
+###############################################################################
+
+# ConfigMap: Enable Harbor COSI bucket provisioning 
+# The harbor-cosi-storage HelmRelease reads "harbor-config-overrides".
+# Enables cosiBucketKit which:
+#   1. Creates a BucketClaim → COSI driver provisions bucket on Nutanix Objects
+#   2. Creates BucketAccess → COSI driver creates IAM user with bucket access
+#   3. Transformation job generates "harbor-cosi-overrides" ConfigMap
+#   4. Harbor HR picks up harbor-cosi-overrides → switches to S3 storage
+# TODO: Need to validate transform policy
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-config-overrides
+  namespace: kommander
+data:
+  values.yaml: |
+    cosiBucketKit:
+      enabled: true
+      bucketClaims:
+        - name: harbor-bucket
+          namespace: ncr-system
+          annotations:
+            helm.sh/resource-policy: keep
+          bucketClassName: cosi-nutanix-nkp
+          protocols:
+            - s3
+      bucketAccesses:
+        - name: harbor-bucket-access
+          namespace: ncr-system
+          annotations:
+            helm.sh/resource-policy: keep
+          bucketAccessClassName: cosi-nutanix-nkp
+          bucketClaimName: harbor-bucket
+          protocol: s3
+          credentialsSecretName: harbor-cosi-credentials
+      transformations:
+        priorityClassName: dkp-high-priority
+        kubectlImage: docker.io/mesosphere/kubectl:v1.34.1-alpine
+        harbor:
+          enabled: true
+          cmName: harbor-cosi-overrides
+          cmNamespace: kommander
+
+---
+
+# Secret: CNPG S3 credentials (ncr-system) 
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cnpg-s3-credentials
+  namespace: ncr-system
+type: Opaque
+stringData:
+  ACCESS_KEY_ID: "${OBJECTS_ACCESS_KEY}"
+  ACCESS_SECRET_KEY: "${OBJECTS_SECRET_KEY}"
+
+---
+
+# ConfigMap: CNPG database overrides 
+# Enables barman backups to S3 for Harbor's PostgreSQL database.
+# The harbor-database HelmRelease reads "harbor-database-overrides" (optional).
+#
+# The chart template (_barman_object_store.tpl) builds the barmanObjectStore
+# spec from these values. If endpointURL is empty AND provider=s3, the chart
+# requires s3.region to construct the default AWS endpoint URL.
+#
+# Standard provided image does not include barman plugin, require to switch to fullbased image
+# Pull and push from ghcr.io/cloudnative-pg/postgresql:17.5-bookworm
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-database-overrides
+  namespace: kommander
+data:
+  values.yaml: |
+    version:
+      postgresql: "17.5-bookworm"
+    cluster:
+      imageName: ghcr.io/mesosphere/dkp-container-images/cloudnative-pg/postgresql:17.5-bookworm
+
+    backups:
+      enabled: true
+      retentionPolicy: "30d"
+
+      provider: s3
+      endpointURL: "http://FS-OBJECT.itcs.local"
+      destinationPath: "s3://nkp-cnpg/"
+
+      s3:
+        region: ""
+        bucket: ""
+        path: "/"
+        accessKey: ""
+        secretKey: ""
+        inheritFromIAMRole: false
+
+      secret:
+        create: false
+        name: cnpg-s3-credentials
+
+      wal:
+        compression: gzip
+        encryption: ""
+        maxParallel: 1
+
+      data:
+        compression: gzip
+        encryption: ""
+        jobs: 2
+
+      scheduledBackups:
+        - name: harbor-db-daily
+          schedule: "0 0 2 * * *"
+          backupOwnerReference: self
+          method: barmanObjectStore
