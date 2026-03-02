@@ -1,0 +1,36 @@
+###############################################################################
+#  NKP License (Nutanix NKPFS / Nutanix-issued keys)
+#
+#  Apply:
+#    kapply day2/00-license.yaml NKP_LICENSE="AEAAQ-..."
+#
+#  If a default license CR already exists:
+#    kubectl delete license -n kommander --all
+#    Then re-run kapply
+#
+#  Verify:
+#    kubectl get licenses -n kommander
+#    kubectl describe license nkp-license -n kommander
+###############################################################################
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nkp-license
+  namespace: kommander
+  labels:
+    kommanderType: license
+type: Opaque
+stringData:
+  nutanix-license-key: "${NKP_LICENSE}"
+
+---
+
+apiVersion: kommander.mesosphere.io/v1beta1
+kind: License
+metadata:
+  name: nkp-license
+  namespace: kommander
+spec:
+  nutanixLicenseRef:
+    name: nkp-license

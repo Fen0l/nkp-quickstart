@@ -1,0 +1,43 @@
+###############################################################################
+#  NKP Insights — Nutanix Objects Storage (via COSI)
+#
+#  Deploys NKP Insights with an existing bucket on Nutanix Objects.
+#  Uses COSI driver (cosi-driver-nutanix) for bucket access management.
+#
+#  Prerequisites:
+#    - COSI driver for Nutanix enabled (02-cosi-secret.yaml applied)
+#    - BucketClass "cosi-nutanix-nkp" exists
+#    - Bucket "${INSIGHTS_BUCKET}" exists on Nutanix Objects
+#    - CloudNativePG operator deployed (platform app, auto-enabled)
+#
+#  Apply (after Kommander install):
+#    kapply mgmt-cluster/day2/60-insights-storage.yaml \
+#      INSIGHTS_BUCKET="nkp-insight"
+#
+#  Verify:
+#    kubectl get appdeployment -n kommander nkp-insights
+#    kubectl get configmap -n kommander nkp-insights-overrides
+#    kubectl get pods -n kommander | grep insight
+#    kubectl get bucketclaim,bucketaccess -n kommander
+#
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nkp-insights-overrides
+  namespace: kommander
+data:
+  values.yaml: |
+    backend:
+      s3:
+        bucketName: "${INSIGHTS_BUCKET}"
+        skipTLSVerification: true
+        disableSSL: false
+        forcePathStyle: false
+        cosi:
+          className: cosi-nutanix-nkp
+          accessClassName: cosi-nutanix-nkp
+          driverName: ntnx.objectstorage.k8s.io
+    cleanup:
+      insightsTTL: "168h"

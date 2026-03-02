@@ -1,0 +1,36 @@
+###############################################################################
+#  Local Users — Dex Static Passwords (Break-Glass Access)
+#
+#  These override the default Dex static passwords. Use for:
+#    - Break-glass admin access when OIDC/GitLab is unavailable
+#    - Demo/lab access for presentations
+#
+#  Generate bcrypt hashes:
+#    echo "YourPassword" | htpasswd -BinC 10 admin | cut -d: -f2
+#
+#  Apply:
+#    kubectl apply -f day2/11-local-users.yaml
+#
+#  Verify:
+#    kubectl get configmap dex-overrides -n kommander
+###############################################################################
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dex-overrides
+  namespace: kommander
+data:
+  values.yaml: |
+    config:
+      staticPasswords:
+      - email: admin@itcs.local
+        # Generate: echo "YourPassword" | htpasswd -BinC 10 admin | cut -d: -f2
+        hash: "${ADMIN_BCRYPT_HASH}"
+        username: admin
+        userID: "admin-001"
+      - email: demo@itcs.local
+        # Generate: echo "DemoPassword" | htpasswd -BinC 10 demo | cut -d: -f2
+        hash: "${DEMO_BCRYPT_HASH}"
+        username: demo
+        userID: "demo-001"
