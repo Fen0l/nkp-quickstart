@@ -1,0 +1,155 @@
+###############################################################################
+#  Thanos Object Store Prometheus Long-Term Metrics to Nutanix Objects S3
+#
+#  Configures the Thanos sidecar (on Prometheus) to upload TSDB blocks to S3,
+#  and enables Thanos StoreGateway + Compactor to read/compact historical data.
+#
+#  Prerequisites:
+#    - Bucket "${THANOS_BUCKET}" exists on Nutanix Objects
+#    - Kommander installed with kube-prometheus-stack and thanos enabled
+#
+#  Apply (after Kommander install):
+#    kapply mgmt-cluster/day2/61-thanos-objstore.yaml \
+#      THANOS_BUCKET="nkp-thanos" \
+#      OBJECTS_ACCESS_KEY="xxx" \
+#      OBJECTS_SECRET_KEY="yyy"
+#
+#  After apply, the Thanos sidecar will start uploading Prometheus TSDB blocks.
+#  StoreGateway serves historical queries. Compactor downsamples and compacts.
+#
+#  After apply, patch the Thanos AppDeployment to pick up overrides:
+#    kubectl patch appdeployment thanos -n kommander --type merge \
+#      -p '{"spec":{"configOverrides":{"name":"thanos-overrides"}}}'
+#
+#  Verify:
+#    kubectl get secret -n kommander thanos-objstore-secret
+#    kubectl get pods -n kommander | grep -E 'thanos|prometheus'
+#    # Check Thanos sidecar logs for upload activity:
+#    kubectl logs prometheus-kube-prometheus-stack-prometheus-0 -n kommander -c thanos-sidecar --tail=20
+#
+#  Ref: https://thanos.io/tip/thanos/storage.md/#s3
+###############################################################################
+
+# Secret: Thanos object store config 
+# Referenced by both kube-prometheus-stack (sidecar) and thanos (storegateway/compactor).
+# insecure_skip_verify is required
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thanos-objstore-secret
+  namespace: kommander
+type: Opaque
+stringData:
+  objstore.yml: |
+    type: S3
+    config:
+      bucket: "${THANOS_BUCKET}"
+      endpoint: "FS-OBJECT.itcs.local"
+      access_key: "${OBJECTS_ACCESS_KEY}"
+      secret_key: "${OBJECTS_SECRET_KEY}"
+      insecure: false
+      http_config:
+        insecure_skip_verify: true
+
+---
+
+# ConfigMap: kube-prometheus-stack overrides (merged with existing if custom applied)
+# Adds Thanos objectStorageConfig to the Prometheus CR so the sidecar
+# uploads TSDB blocks to S3. This ConfigMap is already referenced by the
+# kube-prometheus-stack HelmRelease as "kube-prometheus-stack-overrides".
+#
+# IMPORTANT: This must be merged with the existing overrides, not replaced.
+# Use: kubectl apply (not replace) it preserves existing keys.
+# If the existing overrides have other settings (retention, alertmanager) include them here too.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-prometheus-stack-overrides
+  namespace: kommander
+data:
+  values.yaml: |
+    prometheus:
+      prometheusSpec:
+        retention: 30d
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              resources:
+                requests:
+                  storage: 100Gi
+        thanos:
+          objectStorageConfig:
+            existingSecret:
+              name: thanos-objstore-secret
+              key: objstore.yml
+
+    # AlertManager
+    alertmanager:
+      config:
+        global:
+          resolve_timeout: 5m
+        route:
+          group_by: ['alertname', 'namespace']
+          group_wait: 2m
+          group_interval: 5m
+          repeat_interval: 1h
+          receiver: "null"
+          routes:
+            - match:
+                alertname: Watchdog
+              receiver: "null"
+        receivers:
+          - name: "null"
+
+    # Enable Velero backup alerts
+    mesosphereResources:
+      rules:
+        velero: true
+
+---
+
+# ConfigMap: Thanos overrides
+# Enables StoreGateway and Compactor to read/compact S3 data.
+# The Thanos AppDeployment must be patched to reference this ConfigMap:
+#   kubectl patch appdeployment thanos -n kommander --type merge \
+#     -p '{"spec":{"configOverrides":{"name":"thanos-overrides"}}}'
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: thanos-overrides
+  namespace: kommander
+data:
+  values.yaml: |
+    existingObjstoreSecret: thanos-objstore-secret
+    storegateway:
+      enabled: true
+      priorityClassName: "dkp-high-priority"
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 1
+          memory: 1024Mi
+      persistence:
+        enabled: true
+        size: 10Gi
+    compactor:
+      enabled: true
+      priorityClassName: "dkp-high-priority"
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 1
+          memory: 1024Mi
+      persistence:
+        enabled: true
+        size: 10Gi
+      retentionResolutionRaw: 30d
+      retentionResolution5m: 90d
+      retentionResolution1h: 365d
