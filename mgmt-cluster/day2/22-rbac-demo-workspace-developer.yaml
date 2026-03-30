@@ -1,0 +1,288 @@
+###############################################################################
+#  demo-workspace-developer@itcs.local
+#
+#  Limited developer access to the "demo" workspace.
+#  View-only base with targeted write access on specific resources.
+#
+#  CAN:
+#    - View all resources in demo workspace and demo-apps project
+#    - Create/edit ConfigMaps and Secrets (raw + federated)
+#    - Create/edit GitOps sources (GitRepository, HelmRepository, OCIRepository)
+#    - Create/edit Flux Kustomizations and HelmReleases
+#    - View NKP Insights scan results
+#
+#  CANNOT:
+#    - Enable/disable platform apps (no apps.kommander.d2iq.io)
+#    - Create clusters (no cluster.x-k8s.io)
+#    - Edit or delete projects (no workspaces.kommander.mesosphere.io write)
+#    - Manage workspace settings or RBAC
+#    - Access other workspaces
+#
+#  Custom role "developer-gitops-configmap":
+#    Based on the Kommander edit role but stripped of:
+#      - apps.kommander.d2iq.io    → prevents enable/disable platform apps
+#      - cluster.x-k8s.io          → prevents cluster creation
+#      - workspaces.kommander.mesosphere.io → prevents project edit/delete
+#    Keeps:
+#      - source.toolkit.fluxcd.io  → GitOps sources (git, helm, OCI repos)
+#      - kustomize.toolkit.fluxcd.io → Flux Kustomizations
+#      - helm.toolkit.fluxcd.io    → Flux HelmReleases
+#      - types.kubefed.io          → Federated ConfigMaps/Secrets
+#      - kommander.d2iq.io         → Kommander UI status CRDs (buttons)
+#      - dispatch.d2iq.io          → Dispatch CI/CD CRDs
+#      - dkp-insights.d2iq.io      → Insights CRDs
+#
+#  Bindings:
+#    ClusterRoleBinding → kommander-workspace-view-hwx2w
+#      View demo workspace in Kommander UI (read-only navigation)
+#
+#    RoleBinding (demo ns) → kommander-workspace-view-4tb4q
+#      View all resources in workspace namespace (read-only base)
+#
+#    RoleBinding (demo ns) → ws-kommander-workspace-view-g7spz
+#      List projects in workspace (read-only)
+#
+#    RoleBinding (demo ns) → nkp-insights-all
+#      NKP Insights access in workspace
+#
+#    RoleBinding (demo ns) → developer-gitops-configmap (custom)
+#      Create/edit configmaps, secrets, GitOps sources, Kommander UI CRDs
+#
+#    RoleBinding (demo-apps-h6n8q ns) → kommander-project-view-4mz84
+#      View all resources in project namespace (read-only base)
+#
+#    RoleBinding (demo-apps-h6n8q ns) → developer-gitops-configmap (custom)
+#      Create/edit configmaps, secrets, GitOps sources, Kommander UI CRDs
+#
+#    RoleBinding (demo-apps-h6n8q ns) → nkp-insights-all
+#      NKP Insights access in project
+#
+#  Apply:
+#    kubectl apply -f day2/22-rbac-demo-workspace-developer.yaml
+###############################################################################
+
+---
+# Kommander UI view demo workspace (read-only navigation)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: demo-workspace-developer-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kommander-workspace-view-hwx2w
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-developer@itcs.local
+
+---
+# demo namespace view all resources (read-only base)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-ws-dev-view
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kommander-workspace-view-4tb4q
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-developer@itcs.local
+
+---
+# demo namespace list projects (read-only)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-ws-dev-projects
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ws-kommander-workspace-view-g7spz
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-developer@itcs.local
+
+---
+# demo namespace NKP Insights
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-ws-dev-insights
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nkp-insights-all
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-developer@itcs.local
+
+---
+# demo namespace custom role: configmaps, secrets, GitOps + Kommander UI CRDs
+# Stripped of: apps.kommander.d2iq.io, cluster.x-k8s.io, workspaces projects
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer-gitops-configmap
+  namespace: demo
+rules:
+# K8s ConfigMaps and Secrets (create/edit in workspace)
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Federated ConfigMaps/Secrets (Kommander UI creates these for multi-cluster push)
+- apiGroups: ["types.kubefed.io"]
+  resources: ["federatedconfigmaps", "federatedsecrets"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Flux GitOps sources (Add GitOps Source button)
+- apiGroups: ["source.toolkit.fluxcd.io"]
+  resources: ["gitrepositories", "helmrepositories", "ocirepositories", "buckets", "helmcharts"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Flux Kustomizations (GitOps CD reconciliation targets)
+- apiGroups: ["kustomize.toolkit.fluxcd.io"]
+  resources: ["kustomizations"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Flux HelmReleases (Helm-based GitOps deployments)
+- apiGroups: ["helm.toolkit.fluxcd.io"]
+  resources: ["helmreleases"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Kommander UI internal CRDs (kustomizationstatuses, helmreleasestatuses)
+# Required for UI to render GitOps and configmap action buttons
+- apiGroups: ["kommander.d2iq.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "patch", "update", "create"]
+
+# Dispatch CI/CD CRDs (pipelines, if used)
+- apiGroups: ["dispatch.d2iq.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "patch", "update", "create"]
+
+# NKP Insights CRDs (security scan results)
+- apiGroups: ["dkp-insights.d2iq.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "patch", "update", "create"]
+
+---
+# demo namespace bind custom role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-ws-dev-gitops
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: developer-gitops-configmap
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-developer@itcs.local
+
+---
+# demo-apps project namespace view all resources (read-only base)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-ws-dev-view
+  namespace: demo-apps-h6n8q
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kommander-project-view-4mz84
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-developer@itcs.local
+
+---
+# demo-apps project namespace same custom role as workspace level
+# Stripped of: apps.kommander.d2iq.io, cluster.x-k8s.io, workspaces projects
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer-gitops-configmap
+  namespace: demo-apps-h6n8q
+rules:
+# K8s ConfigMaps and Secrets
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Federated ConfigMaps/Secrets (multi-cluster push)
+- apiGroups: ["types.kubefed.io"]
+  resources: ["federatedconfigmaps", "federatedsecrets"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Flux GitOps sources
+- apiGroups: ["source.toolkit.fluxcd.io"]
+  resources: ["gitrepositories", "helmrepositories", "ocirepositories", "buckets", "helmcharts"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Flux Kustomizations
+- apiGroups: ["kustomize.toolkit.fluxcd.io"]
+  resources: ["kustomizations"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Flux HelmReleases
+- apiGroups: ["helm.toolkit.fluxcd.io"]
+  resources: ["helmreleases"]
+  verbs: ["create", "update", "patch", "delete"]
+
+# Kommander UI CRDs (action buttons)
+- apiGroups: ["kommander.d2iq.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "patch", "update", "create"]
+
+# Dispatch CI/CD CRDs
+- apiGroups: ["dispatch.d2iq.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "patch", "update", "create"]
+  
+# NKP Insights CRDs
+- apiGroups: ["dkp-insights.d2iq.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "patch", "update", "create"]
+
+---
+# demo-apps project namespace bind custom role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-ws-dev-gitops
+  namespace: demo-apps-h6n8q
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: developer-gitops-configmap
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-developer@itcs.local
+
+---
+# demo-apps project namespace NKP Insights
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-ws-dev-insights
+  namespace: demo-apps-h6n8q
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nkp-insights-all
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-developer@itcs.local

@@ -1,0 +1,154 @@
+###############################################################################
+#  Signed Certificates for Kommander
+#
+#  By default, NKP uses a self-signed CA (kommander-ca) to issue all
+#  internal certificates including the Traefik ingress TLS cert.
+#  This causes browser warnings ("Your connection is not private").
+#
+#  Two approaches to use signed certificates:
+#
+#  === OPTION A: Replace the CA (recommended) ===
+#  Replace the kommander-ca secret with your enterprise CA.
+#  All certificates issued by cert-manager will be trusted.
+#  Affects: Traefik ingress, Dex, kube-oidc-proxy, webhooks, etc.
+#
+#  === OPTION B: Replace only the Traefik ingress cert ===
+#  Provide a pre-signed cert for thor.itcs.local directly.
+#  Only fixes the browser warning, internal certs stay self-signed.
+#
+#  Current state:
+#    ClusterIssuer: kommander-ca (self-signed CA in cert-manager ns)
+#    Certificate:   kommander-traefik-tls (CN=traefik.localhost.localdomain)
+#                   SAN: thor.itcs.local
+#                   Issuer: CN=kommander-ca
+#                   Duration: 90 days (auto-renewed by cert-manager)
+#    Secret:        kommander-traefik-tls (kubernetes.io/tls in kommander ns)
+#
+###############################################################################
+
+
+###############################################################################
+#  OPTION A: Replace the Kommander CA
+#
+#  Prepare your enterprise CA cert and key:
+#    - tls.crt: CA certificate (PEM)
+#    - tls.key: CA private key (PEM)
+#
+#  The CA will sign ALL Kommander certificates (Traefik, Dex, webhooks).
+#  Clients must trust this CA.
+#
+#  Steps:
+#    1. Generate or obtain your CA cert + key
+#    2. Apply this secret (replaces the self-signed CA)
+#    3. Delete existing certs to force re-issuance
+#    4. Distribute the CA cert to clients/browsers
+#
+#  Generate a self-managed CA (if you don't have an enterprise CA):
+#    openssl genrsa -out ca.key 4096
+#    openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 \
+#      -subj "/CN=ITCS NKP CA/O=ITCS" -out ca.crt
+#
+#  Apply:
+#    kubectl apply -f day2/70-signed-certificates.yaml
+#
+#  Force cert re-issuance after replacing the CA:
+#    kubectl delete secret kommander-traefik-tls -n kommander
+#    kubectl delete secret dex-tls -n kommander
+#    kubectl delete secret dex-client-tls -n kommander
+#    kubectl delete secret kube-oidc-proxy-server-tls -n kommander
+#    # cert-manager will re-create them signed by the new CA
+#
+#  Verify:
+#    kubectl get secret kommander-traefik-tls -n kommander -o jsonpath='{.data.tls\.crt}' \
+#      | base64 -d | openssl x509 -noout -subject -issuer
+#    # Should show: issuer=CN=ITCS NKP CA, O=ITCS
+#
+#  Distribute CA to browsers/clients:
+#    kubectl get secret kommander-ca -n cert-manager -o jsonpath='{.data.tls\.crt}' \
+#      | base64 -d > kommander-ca.crt
+#    # Import kommander-ca.crt into your browser/OS trust store
+###############################################################################
+
+# Replace the kommander-ca secret in cert-manager namespace
+# The kommander-ca ClusterIssuer reads from this secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kommander-ca
+  namespace: cert-manager
+type: kubernetes.io/tls
+stringData:
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    <YOUR CA CERTIFICATE PEM HERE>
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN RSA PRIVATE KEY-----
+    <YOUR CA PRIVATE KEY PEM HERE>
+    -----END RSA PRIVATE KEY-----
+
+
+###############################################################################
+#  OPTION B: Replace only the Traefik ingress certificate
+#
+#  Use a pre-signed certificate for thor.itcs.local.
+#  Does NOT affect internal Kommander certificates.
+#
+#  Requirements:
+#    - Certificate must include SAN: thor.itcs.local
+#    - Full chain: server cert + intermediate CAs (in order)
+#    - Private key in PEM format
+#
+#  Steps:
+#    1. Obtain a signed cert for thor.itcs.local from your CA
+#    2. Delete the cert-manager Certificate CR (prevents overwrite)
+#    3. Replace the TLS secret with your signed cert
+#
+#  Generate a CSR (if using an enterprise CA):
+#    openssl genrsa -out thor.key 2048
+#    openssl req -new -key thor.key -out thor.csr \
+#      -subj "/CN=thor.itcs.local/O=ITCS" \
+#      -addext "subjectAltName=DNS:thor.itcs.local"
+#    # Submit thor.csr to your CA, receive thor.crt
+#
+#  Apply:
+#    # 1. Stop cert-manager from managing this cert
+#    kubectl delete certificate kommander-traefik-tls -n kommander
+#
+#    # 2. Replace the secret (adjust paths to your cert files)
+#    kubectl create secret tls kommander-traefik-tls -n kommander \
+#      --cert=thor.crt --key=thor.key --dry-run=client -o yaml \
+#      | kubectl apply -f -
+#
+#    # 3. Restart Traefik to pick up the new cert
+#    kubectl rollout restart deployment kommander-traefik -n kommander
+#
+#  Verify:
+#    kubectl get secret kommander-traefik-tls -n kommander -o jsonpath='{.data.tls\.crt}' \
+#      | base64 -d | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
+#
+#  WARNING: Since the Certificate CR is deleted, cert-manager will NOT
+#  auto-renew this cert. You must manually replace it before expiry.
+###############################################################################
+
+# This is an example of a pre-signed TLS secret (Option B)
+# Uncomment and fill in your cert + key to use
+#
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: kommander-traefik-tls
+#   namespace: kommander
+# type: kubernetes.io/tls
+# stringData:
+#   tls.crt: |
+#     -----BEGIN CERTIFICATE-----
+#     <YOUR SERVER CERTIFICATE PEM HERE>
+#     -----END CERTIFICATE-----
+#     -----BEGIN CERTIFICATE-----
+#     <INTERMEDIATE CA CERTIFICATE PEM HERE (if any)>
+#     -----END CERTIFICATE-----
+#   tls.key: |
+#     -----BEGIN RSA PRIVATE KEY-----
+#     <YOUR PRIVATE KEY PEM HERE>
+#     -----END RSA PRIVATE KEY-----

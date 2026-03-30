@@ -1,0 +1,41 @@
+###############################################################################
+#  Workspace Logging Stack (Demo)
+#
+#  Workspace-level logging prerequisites required by project logging apps.
+#  Deploys logging-operator and grafana-loki to the demo workspace.
+#
+#  Dependencies: 31-workspace-apps.yaml (Reloader + Traefik must be running)
+#
+#  Storage: Grafana Loki needs 3 PVs x 10Gi (uses default StorageClass)
+#
+#  Apply:
+#    source ../helpers.sh
+#    kapply day2/32-workspace-logging.yaml \
+#      DEMO_NS="$(kubectl get workspace demo -o jsonpath='{.status.namespaceRef.name}')"
+#
+#  Verify:
+#    kubectl get appdeployments -n <demo-workspace-ns>
+#    kubectl get helmreleases -n <demo-workspace-ns>
+###############################################################################
+
+# Logging Operator — orchestrates Fluent Bit + Fluentd log pipeline
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: logging-operator
+  namespace: ${DEMO_NS}
+spec:
+  appRef:
+    name: logging-operator-6.0.3
+    kind: ClusterApp
+---
+# Grafana Loki — log aggregation backend (3 PVs x 10Gi)
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: grafana-loki
+  namespace: ${DEMO_NS}
+spec:
+  appRef:
+    name: grafana-loki-0.80.5
+    kind: ClusterApp

@@ -187,10 +187,29 @@ if [[ ! -d "$BUNDLE_DIR" ]]; then
 fi
 
 # Auto-detect versioned subdirectory (e.g. nkp-v2.17.0/)
-VERSION_DIR=$(ls -d "${BUNDLE_DIR}"/nkp-v* 2>/dev/null | head -1 || true)
-if [[ -n "$VERSION_DIR" && -d "$VERSION_DIR" ]]; then
-  info "Found versioned subdirectory: $(basename "$VERSION_DIR")"
-  BUNDLE_DIR="$VERSION_DIR"
+VERSION_DIRS=()
+while IFS= read -r d; do
+  [[ -n "$d" ]] && VERSION_DIRS+=("$d")
+done < <(ls -d "${BUNDLE_DIR}"/nkp-v* 2>/dev/null | sort -V)
+
+if [[ ${#VERSION_DIRS[@]} -eq 1 ]]; then
+  info "Found versioned subdirectory: $(basename "${VERSION_DIRS[0]}")"
+  BUNDLE_DIR="${VERSION_DIRS[0]}"
+elif [[ ${#VERSION_DIRS[@]} -gt 1 ]]; then
+  echo ""
+  echo "  Multiple NKP versions found:"
+  for i in "${!VERSION_DIRS[@]}"; do
+    echo "    $((i+1))) $(basename "${VERSION_DIRS[$i]}")"
+  done
+  echo ""
+  read -rp "  Select version [1-${#VERSION_DIRS[@]}]: " choice < /dev/tty
+  if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#VERSION_DIRS[@]} )); then
+    BUNDLE_DIR="${VERSION_DIRS[$((choice-1))]}"
+    info "Selected: $(basename "$BUNDLE_DIR")"
+  else
+    fail "Invalid selection: ${choice}"
+    exit 1
+  fi
 fi
 ok "Bundle directory: ${BUNDLE_DIR}"
 
@@ -292,19 +311,24 @@ for b in "${IMAGE_BUNDLES[@]}"; do
   header "${STEP}/${TOTAL_STEPS} — Pushing $(basename "$b")"
   info "This may take 10-30 minutes depending on bundle size..."
 
-  nkp push bundle --bundle "$b" "${NKP_REG_FLAGS[@]}"
+  CMD=(nkp push bundle --bundle "$b" "${NKP_REG_FLAGS[@]}")
+  # Show command with password masked
+  echo -e "  ${CYAN}\$${NC} ${CMD[*]//$REG_PASS/********}"
+
+  "${CMD[@]}"
 
   ok "$(basename "$b") pushed successfully"
 done
 
-# Push Charts 
+# Push Charts
 for b in "${CHART_BUNDLES[@]}"; do
   STEP=$(( STEP + 1 ))
   header "${STEP}/${TOTAL_STEPS} — Pushing $(basename "$b")"
 
-  nkp push chart-bundle \
-    --bundle "$b" \
-    "${NKP_REG_FLAGS[@]}"
+  CMD=(nkp push chart-bundle --bundle "$b" "${NKP_REG_FLAGS[@]}")
+  echo -e "  ${CYAN}\$${NC} ${CMD[*]//$REG_PASS/********}"
+
+  "${CMD[@]}"
 
   ok "$(basename "$b") pushed successfully"
 done

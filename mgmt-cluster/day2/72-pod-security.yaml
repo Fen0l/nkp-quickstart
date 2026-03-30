@@ -1,0 +1,83 @@
+# 72-pod-security.yaml — Pod Security Admission (PSA) for tenant namespaces
+#
+# PSA is enforced via namespace labels, not CRDs.
+# This file contains:
+#   1. kubectl label commands to apply PSA labels (run these)
+#   2. A reference ConfigMap documenting the policy (for audit/visibility)
+#
+# Policy:
+#   enforce=baseline  — blocks hostNetwork, hostPID, privileged, hostPath
+#   warn=restricted   — warns on missing securityContext (non-blocking)
+#   audit=restricted  — logs violations in audit log (non-blocking)
+#
+# Apply PSA labels:
+#   kubectl label namespace demo \
+#     pod-security.kubernetes.io/enforce=baseline \
+#     pod-security.kubernetes.io/enforce-version=latest \
+#     pod-security.kubernetes.io/warn=restricted \
+#     pod-security.kubernetes.io/warn-version=latest \
+#     pod-security.kubernetes.io/audit=restricted \
+#     pod-security.kubernetes.io/audit-version=latest \
+#     --overwrite
+#
+#   kubectl label namespace demo-apps-h6n8q \
+#     pod-security.kubernetes.io/enforce=baseline \
+#     pod-security.kubernetes.io/enforce-version=latest \
+#     pod-security.kubernetes.io/warn=restricted \
+#     pod-security.kubernetes.io/warn-version=latest \
+#     pod-security.kubernetes.io/audit=restricted \
+#     pod-security.kubernetes.io/audit-version=latest \
+#     --overwrite
+#
+# Verify (should be rejected — privileged pod):
+#   kubectl run test-priv --image=busybox --rm -it -n demo \
+#     --overrides='{"spec":{"containers":[{"name":"test","image":"busybox","securityContext":{"privileged":true}}]}}'
+#
+# Verify labels:
+#   kubectl get namespace demo demo-apps-h6n8q --show-labels
+
+---
+# Reference ConfigMap — documents the PSA policy for audit/visibility
+# This does NOT enforce anything; the namespace labels do the enforcement.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: psa-policy-reference
+  namespace: kommander
+  labels:
+    app.kubernetes.io/part-of: security-hardening
+data:
+  policy.yaml: |
+    # Pod Security Admission Policy Reference
+    # Applied to tenant namespaces via namespace labels.
+    #
+    # Levels:
+    #   privileged — unrestricted (system namespaces only)
+    #   baseline   — prevents known privilege escalations
+    #   restricted — best practice, hardened (may break charts without securityContext)
+    #
+    namespaces:
+      demo:
+        enforce: baseline
+        warn: restricted
+        audit: restricted
+      demo-apps-h6n8q:
+        enforce: baseline
+        warn: restricted
+        audit: restricted
+    #
+    # What baseline blocks:
+    #   - hostNetwork, hostPID, hostIPC
+    #   - privileged containers
+    #   - hostPath volumes
+    #   - host ports
+    #   - capabilities: NET_RAW, SYS_ADMIN, etc.
+    #   - /proc mount types
+    #   - seccomp profiles (non-default)
+    #
+    # What restricted additionally warns on:
+    #   - Running as root (must set runAsNonRoot: true)
+    #   - Missing seccompProfile
+    #   - Writable root filesystem
+    #   - Privilege escalation (allowPrivilegeEscalation: true)
+    #   - Capabilities not dropped (must drop ALL)

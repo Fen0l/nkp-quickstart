@@ -1,0 +1,286 @@
+# 71-network-policies.yaml — Namespace Isolation for demo + demo-apps
+#
+# Standard Kubernetes NetworkPolicy (Cilium enforces both standard and CiliumNetworkPolicy).
+# Only applied to tenant namespaces — system namespaces are left untouched.
+#
+# Apply:
+#   kubectl apply -f day2/71-network-policies.yaml
+#
+# Verify:
+#   kubectl get networkpolicy -n demo
+#   kubectl get networkpolicy -n demo-apps-h6n8q
+
+# ============================================================================
+# DEMO NAMESPACE (workspace)
+# ============================================================================
+
+---
+# Block all incoming traffic by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: demo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Allow ingress from Traefik (kommander ns) and Prometheus scraping
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-ingress
+  namespace: demo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kommander
+
+---
+# Allow pod-to-pod within the same namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: demo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+
+---
+# Allow DNS egress to kube-dns (kube-system)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: demo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# Allow egress to Kubernetes API server (ClusterIP + control plane VIP)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: demo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # kubernetes.default.svc ClusterIP
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    # Control plane VIP
+    - to:
+        - ipBlock:
+            cidr: 10.12.54.200/32
+      ports:
+        - protocol: TCP
+          port: 6443
+
+---
+# Allow egress to Nutanix Objects (S3) and Harbor (ncr-system for image pulls)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-infra-egress
+  namespace: demo
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Nutanix Objects endpoint
+    - to:
+        - ipBlock:
+            cidr: 10.12.54.102/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+    # Harbor (ncr-system namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ncr-system
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
+# ============================================================================
+# DEMO-APPS-H6N8Q NAMESPACE (project)
+# ============================================================================
+
+---
+# Block all incoming traffic by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: demo-apps-h6n8q
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Allow ingress from Traefik (kommander ns) and Prometheus scraping
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-ingress
+  namespace: demo-apps-h6n8q
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kommander
+
+---
+# Allow pod-to-pod within the same namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: demo-apps-h6n8q
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+
+---
+# Allow ingress from parent workspace namespace (demo)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-workspace
+  namespace: demo-apps-h6n8q
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: demo
+
+---
+# Allow DNS egress to kube-dns (kube-system)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: demo-apps-h6n8q
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# Allow egress to Kubernetes API server (ClusterIP + control plane VIP)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: demo-apps-h6n8q
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # kubernetes.default.svc ClusterIP
+    - to:
+        - ipBlock:
+            cidr: 10.96.0.1/32
+      ports:
+        - protocol: TCP
+          port: 443
+    # Control plane VIP
+    - to:
+        - ipBlock:
+            cidr: 10.12.54.200/32
+      ports:
+        - protocol: TCP
+          port: 6443
+
+---
+# Allow egress to Nutanix Objects (S3) and Harbor (ncr-system for image pulls)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-infra-egress
+  namespace: demo-apps-h6n8q
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Nutanix Objects endpoint
+    - to:
+        - ipBlock:
+            cidr: 10.12.54.102/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+    # Harbor (ncr-system namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ncr-system
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80

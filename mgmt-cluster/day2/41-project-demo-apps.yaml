@@ -1,0 +1,164 @@
+###############################################################################
+#  Project Demo Apps Logging + Example Resources
+#
+#  Enables project-level logging on the demo-apps project and creates
+#  example Federated resources (ConfigMap, Secret, Role, RoleBinding,
+#  NetworkPolicy) to demonstrate project resource distribution.
+#
+#  Dependencies:
+#    - 30-workspaces.yaml (demo workspace must exist)
+#    - 31-workspace-apps.yaml (Reloader + Traefik)
+#    - 32-workspace-logging.yaml (logging-operator + grafana-loki)
+#    - 40-projects.yaml (demo-apps project must exist)
+#
+#  Apply:
+#    source ../helpers.sh
+#    DEMO_NS="$(kubectl get workspace demo -o jsonpath='{.status.namespaceRef.name}')"
+#    kapply day2/41-project-demo-apps.yaml \
+#      DEMO_APPS_NS="$(kubectl -n $DEMO_NS get projects.workspaces.kommander.mesosphere.io demo-apps -o jsonpath='{.status.namespaceRef.name}')"
+#
+#  Verify:
+#    kubectl get appdeployments -n <demo-apps-project-ns>
+#    kubectl get helmreleases -n <demo-apps-project-ns>
+#    kubectl get federatedconfigmaps,federatedsecrets,federatedroles,federatedrolebindings,federatednetworkpolicies -n <demo-apps-project-ns>
+###############################################################################
+
+#=============================================================================
+# Project Logging Apps
+#=============================================================================
+
+# Project Logging routes project namespace logs to Grafana Loki
+# Depends on: logging-operator (workspace)
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: project-logging
+  namespace: ${DEMO_APPS_NS}
+spec:
+  appRef:
+    name: project-logging-1.0.4
+    kind: ClusterApp
+---
+# Project Grafana Loki project-scoped log aggregation
+# Depends on: project-logging, grafana-loki (workspace), logging-operator (workspace)
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: project-grafana-loki
+  namespace: ${DEMO_APPS_NS}
+spec:
+  appRef:
+    name: project-grafana-loki-0.80.5
+    kind: ClusterApp
+---
+# Project Grafana Logging log visualization dashboard
+# Depends on: project-grafana-loki
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: project-grafana-logging
+  namespace: ${DEMO_APPS_NS}
+spec:
+  appRef:
+    name: project-grafana-logging-10.1.2
+    kind: ClusterApp
+
+---
+#=============================================================================
+# Example Federated Resources
+#
+# Federated resources are distributed to all clusters attached to this project.
+# They use types.kubefed.io/v1beta1 and placement.clusterSelector: {} to
+# target all project clusters.
+#=============================================================================
+
+# Example ConfigMap application settings distributed to all project clusters
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedConfigMap
+metadata:
+  name: demo-app-config
+  namespace: ${DEMO_APPS_NS}
+spec:
+  placement:
+    clusterSelector: {}
+  template:
+    data:
+      APP_ENV: "demo"
+      LOG_LEVEL: "info"
+      FEATURE_FLAGS: "metrics=true,tracing=true"
+---
+# Example Secret credentials distributed to all project clusters
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedSecret
+metadata:
+  name: demo-app-credentials
+  namespace: ${DEMO_APPS_NS}
+spec:
+  placement:
+    clusterSelector: {}
+  template:
+    type: Opaque
+    data:
+      # base64: change-me-in-production
+      db-password: Y2hhbmdlLW1lLWluLXByb2R1Y3Rpb24=
+      api-key: ZGVtby1hcGkta2V5LWV4YW1wbGU=
+---
+# Example Role read-only access to common workload resources
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedRole
+metadata:
+  name: demo-app-viewer
+  namespace: ${DEMO_APPS_NS}
+spec:
+  placement:
+    clusterSelector: {}
+  template:
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "services", "configmaps", "events"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets", "statefulsets"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["batch"]
+        resources: ["jobs", "cronjobs"]
+        verbs: ["get", "list", "watch"]
+---
+# Example RoleBinding binds demo-app-viewer role to demo-team group
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedRoleBinding
+metadata:
+  name: demo-app-viewer-binding
+  namespace: ${DEMO_APPS_NS}
+spec:
+  placement:
+    clusterSelector: {}
+  template:
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: demo-app-viewer
+    subjects:
+      - apiGroup: rbac.authorization.k8s.io
+        kind: Group
+        name: demo-team
+---
+# Example NetworkPolicy default deny ingress, allow only from project namespace
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedNetworkPolicy
+metadata:
+  name: demo-default-deny-ingress
+  namespace: ${DEMO_APPS_NS}
+spec:
+  placement:
+    clusterSelector: {}
+  template:
+    spec:
+      podSelector: {}
+      policyTypes:
+        - Ingress
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: ${DEMO_APPS_NS}

@@ -1,0 +1,65 @@
+###############################################################################
+#  GitLab OIDC Connector (Dex Connector CRD)
+#
+#  Uses the generic OIDC Connector CRD — the Dex CRD does not have a native
+#  "gitlab" type, so we use "oidc" with GitLab's standard OIDC endpoints.
+#
+#  REQUIRES: cluster outbound HTTPS to gitlab.com
+#            In a fully air-gapped environment, this won't work unless:
+#            - The cluster has outbound HTTPS to gitlab.com (proxy/gateway)
+#            - Or you use a local GitLab instance (change issuer below)
+#
+#  Setup (gitlab.com):
+#    1. GitLab > User Settings > Applications (or Group > Settings > Applications)
+#    2. Name: NKP Thor
+#    3. Redirect URI: https://thor.itcs.local/dex/callback
+#    4. Scopes: openid, profile, email
+#    5. Confidential: yes
+#    6. Copy Application ID → GITLAB_APP_ID
+#    7. Copy Secret → GITLAB_CLIENT_SECRET
+#
+#  Apply:
+#    kapply  mgmt-cluster/day2/10-gitlab-connector.yaml \
+#      GITLAB_APP_ID="<your-app-id>" \
+#      GITLAB_CLIENT_SECRET="<your-secret>"
+#
+#  Verify:
+#    kubectl get connectors.dex.mesosphere.io -n kommander
+#    kubectl describe connector gitlab -n kommander
+###############################################################################
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitlab-oidc-secret
+  namespace: kommander
+type: Opaque
+stringData:
+  client-id: "${GITLAB_APP_ID}"
+  client-secret: "${GITLAB_CLIENT_SECRET}"
+---
+apiVersion: dex.mesosphere.io/v1alpha1
+kind: Connector
+metadata:
+  name: gitlab
+  namespace: kommander
+spec:
+  displayName: "Log in with GitLab"
+  enabled: true
+  type: oidc
+  oidc:
+    issuer: https://gitlab.com
+    clientSecretRef:
+      name: gitlab-oidc-secret
+    redirectURI: https://thor.itcs.local/dex/callback
+    scopes:
+      - openid
+      - profile
+      - email
+    getUserInfo: true
+    insecureEnableGroups: true
+    insecureSkipEmailVerified: true
+    claimMapping:
+      email: email
+      groups: groups
+      preferred_username: preferred_username

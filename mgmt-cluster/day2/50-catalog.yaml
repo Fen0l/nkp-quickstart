@@ -1,0 +1,43 @@
+###############################################################################
+#  Catalog — Demo Applications (Air-Gapped / OCI)
+#
+#  In air-gapped mode, catalog apps are delivered as OCI artifacts via Harbor.
+#  The push + deploy is handled by 4_configure.sh using nkp CLI commands.
+#
+#  Pre-requisites:
+#    1. Build catalog bundle (on internet-connected machine):
+#       nkp create catalog-bundle --output-file demo-catalog.tar
+#
+#    2. Push to Harbor (from admin workstation):
+#       nkp push bundle --bundle demo-catalog.tar \
+#         --to-registry http://harbor.itcs.local/nkp \
+#         --to-registry-username admin \
+#         --to-registry-password ****
+#
+#    3. Deploy catalog (this step — done by 4_configure.sh):
+#       nkp create catalog-application \
+#         --url oci://harbor.itcs.local/nkp/nkp-demo-catalog/demo-apps \
+#         --tag 0.1.0 \
+#         --workspace kommander-default-workspace
+#
+#  For connected environments, you can use a GitRepository source instead:
+#
+#  ---
+#  apiVersion: source.toolkit.fluxcd.io/v1
+#  kind: GitRepository
+#  metadata:
+#    name: demo-catalog
+#    namespace: kommander
+#  spec:
+#    interval: 10m
+#    url: https://github.com/nutanixdev/nkp-demo-catalog-applications
+#    ref:
+#      branch: main
+#
+#  Verify:
+#    kubectl get gitrepository -A
+#    kubectl get apps -A
+###############################################################################
+
+# This file is a reference — actual deployment is CLI-driven.
+# See 4_configure.sh for the automation.

@@ -1,0 +1,135 @@
+###############################################################################
+#  demo-workspace-admin@itcs.local
+#
+#  Full admin of the "demo" workspace and all its projects.
+#
+#  CAN:
+#    - Manage workspace settings (edit workspace object)
+#    - Create/delete/edit projects
+#    - Enable/disable platform apps
+#    - Create clusters
+#    - Manage secrets, configmaps, GitOps sources
+#    - View and manage NKP Insights
+#    - Full admin on all resources in demo-apps project
+#
+#  CANNOT:
+#    - Access other workspaces (production, default)
+#    - Modify cluster-wide settings or RBAC
+#
+#  Bindings:
+#    ClusterRoleBinding → kommander-workspace-admin-vp2v7
+#      Manage demo workspace object in Kommander UI
+#
+#    RoleBinding (demo ns) → kommander-workspace-admin-qnc42
+#      Full admin in workspace namespace (all resources, all verbs)
+#
+#    RoleBinding (demo ns) → ws-kommander-workspace-admin-z4nr7
+#      Manage projects within demo workspace (create/delete/edit)
+#
+#    RoleBinding (demo ns) → nkp-insights-all
+#      NKP Insights access in workspace
+#
+#    RoleBinding (demo-apps-h6n8q ns) → kommander-project-admin-m85v2
+#      Full admin in project namespace (all resources, all verbs)
+#
+#    RoleBinding (demo-apps-h6n8q ns) → nkp-insights-all
+#      NKP Insights access in project
+#
+#  Apply:
+#    kubectl apply -f day2/21-rbac-demo-workspace-admin.yaml
+###############################################################################
+
+---
+# Kommander UI manage demo workspace object
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: demo-workspace-admin-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kommander-workspace-admin-vp2v7
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-admin@itcs.local
+
+---
+# demo namespace full admin (all Kommander + K8s resources)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-workspace-admin-binding
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kommander-workspace-admin-qnc42
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-admin@itcs.local
+
+---
+# demo namespace manage projects (create/delete/edit demo-apps)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-workspace-admin-projects-binding
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ws-kommander-workspace-admin-z4nr7
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-admin@itcs.local
+
+---
+# demo namespace NKP Insights
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-workspace-admin-insights-binding
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nkp-insights-all
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-admin@itcs.local
+
+---
+# demo-apps project namespace full admin (all resources)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-workspace-admin-binding
+  namespace: demo-apps-h6n8q
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kommander-project-admin-m85v2
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-admin@itcs.local
+
+---
+# demo-apps project namespace NKP Insights
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-workspace-admin-insights-binding
+  namespace: demo-apps-h6n8q
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nkp-insights-all
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: demo-workspace-admin@itcs.local
